@@ -13,12 +13,15 @@ xtdata.data_dir = "G:\\qmt\\userdata_mini\\datadir"
 out_dir_base = os.path.join(_WORKSPACE, "tick_parquet")
 os.makedirs(out_dir_base, exist_ok=True)
 
-stock_list_path = os.path.join(_HERE, "stock_list.csv")
-stocks = pd.read_csv(stock_list_path)["stock_code"].tolist()
+# 股票池：全部从 xtdata 实时拉取（SH+SZ+BJ，含新股）
+sh_sz = xtdata.get_stock_list_in_sector("沪深A股") or []
+bj = xtdata.get_stock_list_in_sector("BJ") or []
+stocks = sorted(set(sh_sz) | set(bj))
+print(f"股票池: {len(stocks)} 只（SH+SZ={len(sh_sz)}, BJ={len(bj)}）")
 
-# 只补今天的数据（盘后运行）
+# 盘后运行：下载按宽窗口补缺（3个月），读取只写今日文件
 today = datetime.now().strftime("%Y%m%d")
-start_date = today
+start_date = (datetime.now() - timedelta(days=90)).strftime("%Y%m%d")
 end = today
 
 ok = fail = skip = 0
@@ -46,7 +49,7 @@ for code in pbar:
     try:
         raw = xtdata.get_market_data(
             field_list=[], stock_list=[code], period="tick",
-            start_time=start_date, end_time=end, count=-1,
+            start_time=today, end_time=today, count=-1,
         )
         arr = raw.get(code) if raw else None
     except Exception as e:

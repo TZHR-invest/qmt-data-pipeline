@@ -10,11 +10,14 @@ import xtquant.xtdata as xtdata
 from tqdm import tqdm
 
 xtdata.data_dir = "G:\\qmt\\userdata_mini\\datadir"
-stock_file = os.path.join(_HERE, "stock_list.csv")
 out_dir_base = os.path.join(_WORKSPACE, "kline_1m")
 os.makedirs(out_dir_base, exist_ok=True)
 
-stocks = pd.read_csv(stock_file)["stock_code"].tolist()
+# 股票池：全部从 xtdata 实时拉取（SH+SZ+BJ，含新股）
+sh_sz = xtdata.get_stock_list_in_sector("沪深A股") or []
+bj = xtdata.get_stock_list_in_sector("BJ") or []
+stocks = sorted(set(sh_sz) | set(bj))
+print(f"股票池: {len(stocks)} 只（SH+SZ={len(sh_sz)}, BJ={len(bj)}）")
 print(f"{len(stocks)} stocks, incremental update 1m data + parquet export", flush=True)
 
 today = datetime.now()

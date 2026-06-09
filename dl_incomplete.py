@@ -32,7 +32,7 @@ for stock in remaining:
     for period, start, end in [("1m","20250101","20251231"), ("1m","20260101","20260608")]:
         try:
             r = xtdata.download_history_data(stock, period, start, end)
-            if r is not None:
+            if r != 0:
                 fail += 1
         except Exception:
             fail += 1

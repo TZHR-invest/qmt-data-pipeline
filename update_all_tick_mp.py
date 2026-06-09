@@ -8,7 +8,7 @@ Tick 数据增量更新 + 按日 Parquet 导出（多进程版）
 """
 
 import sys, os, argparse
-from datetime import datetime
+from datetime import datetime, timedelta
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _WORKSPACE = os.path.dirname(_HERE)
 sys.path.insert(0, _WORKSPACE)
@@ -18,7 +18,7 @@ from multiprocessing import Pool
 
 def process_stock(args):
     """单个股票的 tick 下载 + parquet 导出（每个进程独立运行）"""
-    code, out_dir_base, data_dir, start_date, end, today_dash = args
+    code, out_dir_base, data_dir, start_date, end, today_ymd, today_dash = args
 
     import xtquant.xtdata as xtdata
     import pyarrow as pa
@@ -43,7 +43,7 @@ def process_stock(args):
     try:
         raw = xtdata.get_market_data(
             field_list=[], stock_list=[code], period="tick",
-            start_time=start_date, end_time=end, count=-1,
+            start_time=today_ymd, end_time=today_ymd, count=-1,
         )
         arr = raw.get(code) if raw else None
     except Exception:
@@ -77,22 +77,28 @@ if __name__ == "__main__":
     parser.add_argument("--workers", type=int, default=4, help="并行进程数 (default: 4)")
     args = parser.parse_args()
 
-    stock_file = os.path.join(_HERE, "stock_list.csv")
     out_dir_base = os.path.join(_WORKSPACE, "tick_parquet")
     data_dir = "G:\\qmt\\userdata_mini\\datadir"
     os.makedirs(out_dir_base, exist_ok=True)
 
-    stocks = pd.read_csv(stock_file)["stock_code"].tolist()
+    # 股票池：全部从 xtdata 实时拉取（SH+SZ+BJ，含新股）
+    import xtquant.xtdata as xtdata
+    xtdata.data_dir = data_dir
+    sh_sz = xtdata.get_stock_list_in_sector("沪深A股") or []
+    bj = xtdata.get_stock_list_in_sector("BJ") or []
+    stocks = sorted(set(sh_sz) | set(bj))
+    print(f"股票池: {len(stocks)} 只（SH+SZ={len(sh_sz)}, BJ={len(bj)}）")
 
     today = datetime.now()
-    start_date = today.strftime("%Y%m%d")
-    end = start_date
+    today_ymd = today.strftime("%Y%m%d")
+    start_date = (today - timedelta(days=90)).strftime("%Y%m%d")
+    end = today_ymd
     today_dash = today.strftime("%Y-%m-%d")
 
     print(f"{len(stocks)} stocks, {args.workers} workers, updating tick data...")
 
     worker_args = [
-        (code, out_dir_base, data_dir, start_date, end, today_dash)
+        (code, out_dir_base, data_dir, start_date, end, today_ymd, today_dash)
         for code in stocks
     ]
 
