@@ -19,9 +19,9 @@ bj = xtdata.get_stock_list_in_sector("BJ") or []
 stocks = sorted(set(sh_sz) | set(bj))
 print(f"股票池: {len(stocks)} 只（SH+SZ={len(sh_sz)}, BJ={len(bj)}）")
 
-# 盘后运行：下载按宽窗口补缺（3个月），读取只写今日文件
+# 盘后运行：增量下载只读当天，不需扫 90 天
 today = datetime.now().strftime("%Y%m%d")
-start_date = (datetime.now() - timedelta(days=90)).strftime("%Y%m%d")
+start_date = today
 end = today
 
 ok = fail = skip = 0

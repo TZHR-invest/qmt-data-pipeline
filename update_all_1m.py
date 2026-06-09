@@ -1,5 +1,5 @@
 import sys, os, time
-from datetime import datetime
+from datetime import datetime, timedelta
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _WORKSPACE = os.path.dirname(_HERE)
 sys.path.insert(0, _WORKSPACE)
@@ -22,59 +22,49 @@ print(f"{len(stocks)} stocks, incremental update 1m data + parquet export", flus
 
 today = datetime.now()
 today_ymd = today.strftime("%Y%m%d")
-today_file = today.strftime("%Y-%m-%d")
+month_str = today.strftime("%Y-%m")
 
 ok = fail = 0
 t0 = time.time()
 
 for code in tqdm(stocks, desc="1m", unit="stock"):
     code_dir = os.path.join(out_dir_base, code.replace(".", "_"))
-    day_file = os.path.join(code_dir, f"{today_file}.parquet")
+    month_file = os.path.join(code_dir, f"{month_str}.parquet")
 
-    # 如果今日 parquet 已存在，跳过（代表已导出过）
-    if os.path.exists(day_file) and os.path.getsize(day_file) > 0:
-        ok += 1
-        continue
-
-    # 第1步：增量下载 1m
+    # 增量下载（确保数据完整）
     try:
-        r = xtdata.download_history_data(code, "1m")
-        if r != 0:
-            fail += 1
-            continue
+        xtdata.download_history_data(code, "1m", today_ymd, today_ymd, incrementally=True)
     except Exception:
-        fail += 1
-        continue
+        pass
 
-    # 第2步：读本地数据（只读当天）
+    # 读当天数据
     try:
         raw = xtdata.get_market_data_ex(
             field_list=[], stock_list=[code], period="1m",
             start_time=today_ymd, end_time=today_ymd, count=-1,
         )
+        frame = raw.get(code) if raw else None
     except Exception:
-        fail += 1
-        continue
+        frame = None
 
-    frame = raw.get(code) if raw else None
     if frame is None or frame.empty:
         ok += 1
         continue
 
-    # 第3步：写按日 parquet
+    # 第3步：追加到当月 parquet
     os.makedirs(code_dir, exist_ok=True)
-    day_df = frame.reset_index()
-    day_df.columns = ["time"] + list(day_df.columns[1:])  # 确保时间列名为 time
-    day_df = day_df.drop_duplicates(subset=["time"]).sort_values("time").reset_index(drop=True)
+    day_df = frame.drop_duplicates(subset=["time"]).sort_values("time").reset_index(drop=True)
 
-    if os.path.exists(day_file):
-        df_old = pd.read_parquet(day_file)
-        day_df = pd.concat([df_old, day_df], ignore_index=True)
-        day_df = day_df.drop_duplicates(subset=["time"]).sort_values("time").reset_index(drop=True)
+    if os.path.exists(month_file) and os.path.getsize(month_file) > 0:
+        df_old = pd.read_parquet(month_file)
+        merged = pd.concat([df_old, day_df], ignore_index=True)
+        merged = merged.drop_duplicates(subset=["time"]).sort_values("time").reset_index(drop=True)
+    else:
+        merged = day_df
 
     pq.write_table(
-        pa.Table.from_pandas(day_df, preserve_index=False),
-        day_file,
+        pa.Table.from_pandas(merged, preserve_index=False),
+        month_file,
         compression="zstd",
         compression_level=6,
     )
@@ -82,4 +72,4 @@ for code in tqdm(stocks, desc="1m", unit="stock"):
 
 t = time.time() - t0
 print(f"\nDone! OK={ok} Fail={fail} Elapsed={t:.0f}s", flush=True)
-print(f"Output: {out_dir_base}/{{code}}/{{date}}.parquet", flush=True)
+print(f"Output: {out_dir_base}/{{code}}/{{month}}.parquet", flush=True)

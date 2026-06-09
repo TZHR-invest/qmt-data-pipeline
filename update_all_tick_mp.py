@@ -91,7 +91,8 @@ if __name__ == "__main__":
 
     today = datetime.now()
     today_ymd = today.strftime("%Y%m%d")
-    start_date = (today - timedelta(days=90)).strftime("%Y%m%d")
+    # 增量更新只扫当天，已有历史数据缓存在 QMT 中
+    start_date = today_ymd
     end = today_ymd
     today_dash = today.strftime("%Y-%m-%d")
 
