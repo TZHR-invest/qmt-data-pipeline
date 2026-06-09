@@ -1,0 +1,4 @@
+# 运行时文件
+*.json
+__pycache__/
+.venv/
