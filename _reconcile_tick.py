@@ -18,6 +18,7 @@ data_dir = "G:\\qmt\\userdata_mini\\datadir"
 def reconcile_stock(args):
     code, today_ymd, start_3m = args
 
+    from datetime import datetime, timedelta
     import xtquant.xtdata as xtdata
     xtdata.data_dir = data_dir
 
@@ -30,8 +31,11 @@ def reconcile_stock(args):
         for f in os.listdir(code_dir):
             if f.endswith(".parquet"):
                 existing.add(f.replace(".parquet", ""))
-    if not existing:
-        return ("new", code, "no daily files yet")
+
+    # 如果已有文件已覆盖整个范围，跳过
+    all_dates = [(datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(90)]
+    if existing and all(d in existing for d in all_dates):
+        return ("skip", code, "已完整")
 
     # 读 .DAT 中 90 天数据
     try:
