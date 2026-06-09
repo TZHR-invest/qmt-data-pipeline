@@ -1,6 +1,6 @@
 """
-一次性任务：将旧的 flat parquet (tick_parquet/000001_SZ.parquet)
-拆分为按日分片 (tick_parquet/000001_SZ/2026-03-09.parquet ...)
+一次性任务：将旧的 flat parquet 拆分为按日分片
+输出: D:\qmt_data_parquet\tick_parquet\{code}\{date}.parquet
 
 用法： python migrate_tick_to_daily.py [--dry-run] [--workers 8] [--limit N]
       --dry-run 只统计不实际拆分
@@ -16,7 +16,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-out_dir = os.path.join(_WORKSPACE, "tick_parquet")
+out_dir = r"D:\qmt_data_parquet\tick_parquet"
 
 
 def migrate_file(code, flat_file, dry_run=False):

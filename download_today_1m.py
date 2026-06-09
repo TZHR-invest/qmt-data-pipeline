@@ -4,7 +4,7 @@ _WORKSPACE = os.path.dirname(_HERE)
 sys.path.insert(0, _WORKSPACE)
 import xtquant.xtdata as xtdata
 
-xtdata.data_dir = "G:\\qmt\\userdata_mini\\datadir"
+xtdata.data_dir = "D:\\qmt_data"
 
 today = "20260608"
 stock_file = os.path.join(_HERE, "stock_list.csv")

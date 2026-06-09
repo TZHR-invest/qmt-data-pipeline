@@ -12,8 +12,8 @@ import pyarrow.parquet as pq
 from datetime import datetime, timedelta
 from multiprocessing import Pool
 
-out_dir = os.path.join(_WORKSPACE, "tick_parquet")
-data_dir = "G:\\qmt\\userdata_mini\\datadir"
+out_dir = r"D:\qmt_data_parquet\tick_parquet"
+data_dir = "D:\\qmt_data"
 
 def reconcile_stock(args):
     code, today_ymd, start_3m = args

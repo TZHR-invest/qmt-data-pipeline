@@ -76,8 +76,8 @@ def main():
                         help="并行进程数 (default: 4)")
     args = parser.parse_args()
 
-    out_dir_base = os.path.join(_WORKSPACE, "kline_1m")
-    data_dir = "G:\\qmt\\userdata_mini\\datadir"
+    out_dir_base = r"D:\qmt_data_parquet\kline_1m"
+    data_dir = "D:\\qmt_data"
     os.makedirs(out_dir_base, exist_ok=True)
 
     # 股票池

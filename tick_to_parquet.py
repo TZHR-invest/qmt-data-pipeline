@@ -7,8 +7,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import xtquant.xtdata as xtdata
 
-xtdata.data_dir = "G:\\qmt\\userdata_mini\\datadir"
-out_dir = os.path.join(_WORKSPACE, "tick_parquet")
+xtdata.data_dir = "D:\\qmt_data"
+out_dir = r"D:\qmt_data_parquet\tick_parquet"
 os.makedirs(out_dir, exist_ok=True)
 cp_file = os.path.join(out_dir, "_checkpoint.json")
 

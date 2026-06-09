@@ -15,8 +15,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-out_dir = os.path.join(_WORKSPACE, "kline_1m")
-data_dir = "G:\\qmt\\userdata_mini\\datadir"
+out_dir = r"D:\qmt_data_parquet\kline_1m"
+data_dir = "D:\\qmt_data"
 
 
 def export_stock(args):

@@ -4,7 +4,7 @@ from collections import Counter
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _WORKSPACE = os.path.dirname(_HERE)
 
-datadir = Path("G:\\qmt\\userdata_mini\\datadir")
+datadir = Path("D:\\qmt_data")
 out = os.path.join(_HERE, "stock_1m_count.csv")
 
 stocks = []

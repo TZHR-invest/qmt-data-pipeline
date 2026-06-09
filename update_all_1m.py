@@ -9,8 +9,8 @@ import pyarrow.parquet as pq
 import xtquant.xtdata as xtdata
 from tqdm import tqdm
 
-xtdata.data_dir = "G:\\qmt\\userdata_mini\\datadir"
-out_dir_base = os.path.join(_WORKSPACE, "kline_1m")
+xtdata.data_dir = "D:\\qmt_data"
+out_dir_base = r"D:\qmt_data_parquet\kline_1m"
 os.makedirs(out_dir_base, exist_ok=True)
 
 # 股票池：全部从 xtdata 实时拉取（SH+SZ+BJ，含新股）

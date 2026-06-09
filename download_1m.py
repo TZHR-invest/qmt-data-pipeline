@@ -4,7 +4,7 @@ _WORKSPACE = os.path.dirname(_HERE)
 sys.path.insert(0, _WORKSPACE)
 import xtquant.xtdata as xtdata
 
-xtdata.data_dir = "G:\\qmt\\userdata_mini\\datadir"
+xtdata.data_dir = "D:\\qmt_data"
 
 for period in ["1m", "5m"]:
     print(f"下载 {period} 20230601-20260608...", flush=True)

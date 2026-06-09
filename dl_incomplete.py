@@ -5,7 +5,7 @@ sys.path.insert(0, _WORKSPACE)
 import xtquant.xtdata as xtdata
 from tqdm import tqdm
 
-xtdata.data_dir = "G:\\qmt\\userdata_mini\\datadir"
+xtdata.data_dir = "D:\\qmt_data"
 
 need = []
 with open(os.path.join(_HERE, "stock_1m_count.csv"), encoding="utf-8") as f:
