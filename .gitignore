@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 
 logs/
+
+# 临时测试脚本
+test_*.bat

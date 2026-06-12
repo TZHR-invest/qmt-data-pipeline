@@ -6,7 +6,8 @@ echo [%DATE% %TIME%] 1m daily update started >> "%LOGFILE%"
 G:\qmt_projects\quant-qmt-proxy\.venv\Scripts\python.exe G:\qmt_projects\qmt-data-pipeline\update_all_1m_mp.py --workers 4 >> "%LOGFILE%" 2>&1
 echo [%DATE% %TIME%] 1m daily update finished exit=%ERRORLEVEL% >> "%LOGFILE%"
 
-REM 合并当月日级文件→月度 parquet（首次较慢，后续增量）
+REM merge daily files to monthly parquet
 echo [%DATE% %TIME%] 1m consolidation started >> "%LOGFILE%"
 G:\qmt_projects\quant-qmt-proxy\.venv\Scripts\python.exe G:\qmt_projects\qmt-data-pipeline\consolidate_1m_to_monthly.py >> "%LOGFILE%" 2>&1
 echo [%DATE% %TIME%] 1m consolidation finished exit=%ERRORLEVEL% >> "%LOGFILE%"
+
