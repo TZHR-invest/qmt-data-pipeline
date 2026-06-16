@@ -33,7 +33,12 @@ def process_stock(args):
     if os.path.exists(day_file) and os.path.getsize(day_file) > 0:
         return ("skip", code)
 
-    # 读当天 tick（get_market_data 内部会缓存/服务器自动兜底）
+    # 增量下载今天 tick（必须显式 download，get_market_data 不会自动拉当天数据）
+    try:
+        xtdata.download_history_data(code, "tick", start_date, end, incrementally=True)
+    except Exception:
+        pass
+
     try:
         raw = xtdata.get_market_data(
             field_list=[], stock_list=[code], period="tick",
