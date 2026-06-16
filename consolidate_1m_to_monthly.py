@@ -10,6 +10,7 @@
 """
 import sys, os, argparse, glob
 from datetime import datetime
+from multiprocessing import Pool
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _WORKSPACE = os.path.dirname(_HERE)
@@ -79,6 +80,12 @@ def consolidate_stock(code, month, delete_daily):
     return ("ok", code, f"{len(daily_files)} days, {len(chunks)} chunks, {len(merged)} rows")
 
 
+def _worker(args):
+    """多进程 worker 包装"""
+    code_dir, month, delete_daily = args
+    return consolidate_stock(code_dir, month, delete_daily)
+
+
 def main():
     parser = argparse.ArgumentParser(description="1m 日级 parquet → 月度合并")
     parser.add_argument("--month", type=str, default="",
@@ -87,6 +94,8 @@ def main():
                         help="合并后删除日级文件")
     parser.add_argument("--limit", type=int, default=0,
                         help="限制处理股票数量（测试用）")
+    parser.add_argument("--workers", type=int, default=4,
+                        help="并行进程数 (default: 4)")
     args = parser.parse_args()
 
     month = args.month or datetime.now().strftime("%Y-%m")
@@ -101,27 +110,29 @@ def main():
         codes = codes[:args.limit]
         print(f"限制处理 {args.limit} 只")
 
-    print(f"合并 {month} 月度 parquet，共 {len(codes)} 只股票")
+    print(f"合并 {month} 月度 parquet，共 {len(codes)} 只股票，{args.workers} workers")
     if args.delete:
         print("（合并后将删除日级文件）")
+
+    worker_args = [(cd, month, args.delete) for cd in codes]
 
     t0 = datetime.now()
     ok = fail = skip = 0
 
-    for i, code_dir in enumerate(codes, 1):
-        # code_dir 是 "000001_SZ" 格式
-        status, code, msg = consolidate_stock(code_dir, month, args.delete)
-        if status == "ok":
-            ok += 1
-        elif status == "fail":
-            fail += 1
-            print(f"  [{i}/{len(codes)}] ✗ {code}: {msg}")
-        else:
-            skip += 1
+    from tqdm import tqdm
 
-        if i % 1000 == 0 or status == "ok":
-            elapsed = (datetime.now() - t0).total_seconds()
-            print(f"  [{i}/{len(codes)}] {status.upper():4s} {code}  {msg}  ({elapsed:.0f}s)")
+    with Pool(processes=args.workers) as pool:
+        for status, code, msg in tqdm(
+            pool.imap_unordered(_worker, worker_args),
+            total=len(codes), desc="consolidate", unit="stock",
+        ):
+            if status == "ok":
+                ok += 1
+            elif status == "fail":
+                fail += 1
+                tqdm.write(f"  ✗ {code}: {msg}")
+            else:
+                skip += 1
 
     elapsed = (datetime.now() - t0).total_seconds()
     print(f"\n完成! OK={ok} Skip={skip} Fail={fail} 耗时={elapsed:.0f}s ({elapsed/60:.1f}min)")

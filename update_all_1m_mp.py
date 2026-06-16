@@ -35,7 +35,13 @@ def process_stock(args):
     if _os.path.exists(day_file) and _os.path.getsize(day_file) > 0:
         return ("skip", code)
 
-    # 读当天数据（get_market_data_ex 内部会缓存/服务器自动兜底）
+    # 先 download 确保数据被拉到本地（get_market_data_ex 对当天数据不会自动从服务器拉取）
+    try:
+        xtdata.download_history_data(code, period="1m", start_time=today_ymd, end_time=today_ymd, incrementally=True)
+    except Exception:
+        return ("skip", code)
+
+    # 读当天数据
     try:
         raw = xtdata.get_market_data_ex(
             field_list=[], stock_list=[code], period="1m",
