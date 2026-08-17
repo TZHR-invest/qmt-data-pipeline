@@ -10,3 +10,6 @@ test_*.bat
 
 # 运行产生的数据目录
 data/
+
+# codegraph 缓存
+.codegraph/

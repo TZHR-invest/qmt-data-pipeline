@@ -3,5 +3,10 @@ set LOGDIR=G:\qmt_projects\qmt-data-pipeline\logs
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 set LOGFILE=%LOGDIR%\tick_%DATE:~0,4%%DATE:~5,2%%DATE:~8,2%.log
 echo [%DATE% %TIME%] tick update started >> "%LOGFILE%"
+G:\qmt_projects\quant-qmt-proxy\.venv\Scripts\python.exe G:\qmt_projects\qmt-data-pipeline\check_trading_day.py >> "%LOGFILE%" 2>&1
+if errorlevel 1 (
+    echo [%DATE% %TIME%] not a trading day, skip >> "%LOGFILE%"
+    exit /b 0
+)
 G:\qmt_projects\quant-qmt-proxy\.venv\Scripts\python.exe G:\qmt_projects\qmt-data-pipeline\update_all_tick_mp.py --workers 4 >> "%LOGFILE%" 2>&1
 echo [%DATE% %TIME%] tick update finished exit=%ERRORLEVEL% >> "%LOGFILE%"
