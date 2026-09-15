@@ -12,6 +12,11 @@ from datetime import datetime, timedelta
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _WORKSPACE = os.path.dirname(_HERE)
 sys.path.insert(0, _WORKSPACE)
+# 2026-09-15: mini 退役后 miniquote(58610) 消失，行情改走大QMT 桥。
+# 必须插在 _WORKSPACE 之后：G:\qmt_projects\xtquant 是旧 SDK 副本(与 venv 内那份
+# 逐字节相同)，会遮蔽桥的影子包；spawn 子进程会重跑本模块体，故对子进程同样生效。
+sys.path.insert(0, r"C:\bridge-client")
+sys.path.insert(0, r"C:\bridge-client\bridge\src")
 import pandas as pd
 from multiprocessing import Pool
 
@@ -40,7 +45,10 @@ def process_stock(args):
         pass
 
     try:
-        raw = xtdata.get_market_data(
+        # 2026-09-15: 桥的终端进程内没有 numpy，旧 get_market_data() 会抛
+        # RpcServerRepliedError(ModuleNotFoundError: numpy)；改用 get_market_data_ex。
+        # 注意：桥下 tick 只有 18 列（比 mini 少 tickvol/pe；pe 在 mini 时代恒 0）。
+        raw = xtdata.get_market_data_ex(
             field_list=[], stock_list=[code], period="tick",
             start_time=today_ymd, end_time=today_ymd, count=-1,
         )
@@ -84,7 +92,7 @@ if __name__ == "__main__":
     import xtquant.xtdata as xtdata
     xtdata.data_dir = data_dir
     sh_sz = xtdata.get_stock_list_in_sector("沪深A股") or []
-    bj = xtdata.get_stock_list_in_sector("BJ") or []
+    bj = xtdata.get_stock_list_in_sector("京市A股") or []
     stocks = sorted(set(sh_sz) | set(bj))
     print(f"股票池: {len(stocks)} 只（SH+SZ={len(sh_sz)}, BJ={len(bj)}）")
 

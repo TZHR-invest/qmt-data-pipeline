@@ -2,6 +2,10 @@ import sys, os, time
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))
 
+# 2026-09-15: mini 退役后 miniquote(58610) 消失，行情改走大QMT 桥（本文件无 _WORKSPACE 锚点，
+# 故插在首个 xtquant import 之前）。
+sys.path.insert(0, r"C:\bridge-client")
+sys.path.insert(0, r"C:\bridge-client\bridge\src")
 from xtquant import xtdata
 
 stock = '000001.SZ'
