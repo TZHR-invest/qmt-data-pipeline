@@ -41,10 +41,14 @@ def process_stock(args):
         return ("skip", code)
 
     # 先 download 确保数据被拉到本地（get_market_data_ex 对当天数据不会自动从服务器拉取）
+    import time as _time
+    t_dl = _time.time()
+    dl_note = ""
     try:
         xtdata.download_history_data(code, period="1m", start_time=today_ymd, end_time=today_ymd, incrementally=True)
-    except Exception:
-        return ("skip", code)
+    except Exception as exc:
+        dl_note = "%s: %s" % (type(exc).__name__, str(exc)[:200].replace("\n", " "))
+        print("[1m-dl-exc] %s %.2fs %s" % (code, _time.time() - t_dl, dl_note))
 
     # 读当天数据
     try:
@@ -53,15 +57,20 @@ def process_stock(args):
             start_time=today_ymd, end_time=today_ymd, count=-1,
         )
         frame = raw.get(code) if raw else None
-    except Exception:
-        frame = None
+    except Exception as exc:
+        print("[1m-read-exc] %s dl=%.2fs %s: %s"
+              % (code, _time.time() - t_dl, type(exc).__name__,
+                 str(exc)[:200].replace("\n", " ")))
+        return ("fail", code)
 
     if frame is None or frame.empty:
-        return ("skip", code)
+        print("[1m-empty] %s dl=%.2fs dl_exc=%s"
+              % (code, _time.time() - t_dl, dl_note or "none"))
+        return ("fail", code) if dl_note else ("empty", code)
 
     day_df = frame.drop_duplicates(subset=["time"]).sort_values("time").reset_index(drop=True)
     if day_df.empty:
-        return ("skip", code)
+        return ("empty", code)
 
     # 写当日 parquet（低压缩，快速写入）
     try:
@@ -107,8 +116,11 @@ def main():
         for code in stocks
     ]
 
+    import sys as _sys
+
     t0 = datetime.now()
-    ok = fail = skip = 0
+    ok = fail = skip = empty = 0
+    retry_codes = []
 
     from tqdm import tqdm
     with Pool(processes=args.workers) as pool:
@@ -118,11 +130,38 @@ def main():
                 ok += 1
             elif status == "fail":
                 fail += 1
+                retry_codes.append(code)
+            elif status == "empty":
+                empty += 1
+                retry_codes.append(code)
             else:
                 skip += 1
 
+    # 2026-09-16: 失败/空读有界补跑一遍（原实现混进 skip => 静默漏数据）
+    recovered = still_fail = still_empty = 0
+    if retry_codes:
+        _pick = set(retry_codes)
+        retry_args = [a for a in worker_args if a[0] in _pick]
+        print("\n[retry] 补跑 %d 只（fail+empty）" % len(retry_args))
+        with Pool(processes=args.workers) as pool:
+            for status, code in tqdm(pool.imap_unordered(process_stock, retry_args),
+                                     total=len(retry_args), desc="1m(retry)", unit="stock"):
+                if status == "ok":
+                    recovered += 1
+                elif status == "empty":
+                    still_empty += 1
+                elif status == "fail":
+                    still_fail += 1
+
     elapsed = (datetime.now() - t0).total_seconds()
-    print(f"\nDone! OK={ok} Skip={skip} Fail={fail} Elapsed={elapsed:.0f}s")
+    print(f"\nDone! OK={ok} Skip={skip} Fail={fail} Empty={empty} "
+          f"Retry={len(retry_codes)} Recovered={recovered} Elapsed={elapsed:.0f}s")
+    StillFailing = still_fail
+    StillEmpty = still_empty
+    if StillFailing or empty > 100:
+        print(f"[ALERT] 1m 补跑后仍失败 {StillFailing} 只 / 空读 {StillEmpty} 只"
+              f"（空读阈值 100，mini 基线 44）—— 当日数据可能不完整")
+        _sys.exit(1)
     print(f"Output: {out_dir_base}/{{code}}/{{date}}.parquet")
 
 

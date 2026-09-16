@@ -66,12 +66,13 @@ def process_stock(args):
         print("[tick-read-exc] %s dl=%.2fs %s: %s"
               % (code, time.time() - t_dl, type(exc).__name__,
                  str(exc)[:200].replace("\n", " ")))
-        return ("skip", code)
+        return ("fail", code)
 
     if arr is None or len(arr) == 0:
         print("[tick-empty] %s dl=%.2fs dl_exc=%s"
               % (code, time.time() - t_dl, dl_note or "none"))
-        return ("skip", code)
+        # 下载本身就异常 -> 这是故障；下载正常却无数据 -> 合法空（退市/停牌）
+        return ("fail", code) if dl_note else ("empty", code)
 
     df_new = pd.DataFrame(arr).sort_values("time").reset_index(drop=True)
 
@@ -124,8 +125,11 @@ if __name__ == "__main__":
         for code in stocks
     ]
 
+    import sys as _sys
+
     t0 = datetime.now()
-    ok = fail = skip = 0
+    ok = fail = skip = empty = 0
+    retry_codes = []
 
     from tqdm import tqdm
     with Pool(processes=args.workers) as pool:
@@ -135,9 +139,36 @@ if __name__ == "__main__":
                 ok += 1
             elif status == "fail":
                 fail += 1
+                retry_codes.append(code)
+            elif status == "empty":
+                empty += 1
+                retry_codes.append(code)
             else:
                 skip += 1
 
+    # 2026-09-16: 失败/空读有界补跑一遍（原实现混进 skip => 静默漏数据）
+    recovered = still_fail = still_empty = 0
+    if retry_codes:
+        _pick = set(retry_codes)
+        retry_args = [a for a in worker_args if a[0] in _pick]
+        print("\n[retry] 补跑 %d 只（fail+empty）" % len(retry_args))
+        with Pool(processes=args.workers) as pool:
+            for status, code in tqdm(pool.imap_unordered(process_stock, retry_args),
+                                     total=len(retry_args), desc="Tick(retry)", unit="stock"):
+                if status == "ok":
+                    recovered += 1
+                elif status == "empty":
+                    still_empty += 1
+                elif status == "fail":
+                    still_fail += 1
+
     elapsed = (datetime.now() - t0).total_seconds()
-    print(f"\nDone! OK={ok} Skip={skip} Fail={fail} Elapsed={elapsed:.0f}s")
+    print(f"\nDone! OK={ok} Skip={skip} Fail={fail} Empty={empty} "
+          f"Retry={len(retry_codes)} Recovered={recovered} Elapsed={elapsed:.0f}s")
+    StillFailing = still_fail
+    StillEmpty = still_empty
+    if StillFailing or empty > 100:
+        print(f"[ALERT] tick 补跑后仍失败 {StillFailing} 只 / 空读 {StillEmpty} 只"
+              f"（空读阈值 100，mini 基线 32）—— 当日数据可能不完整")
+        _sys.exit(1)
     print(f"Output: {out_dir_base}/{{code}}/{{date}}.parquet")
