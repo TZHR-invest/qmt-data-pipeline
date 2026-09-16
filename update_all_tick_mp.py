@@ -7,7 +7,7 @@ Tick 数据增量更新 + 按日 Parquet 导出（多进程版）
 与 update_all_tick.py 区别：使用 multiprocessing.Pool 并行处理，适合日常盘后快速增量。
 """
 
-import sys, os, argparse
+import sys, os, argparse, time
 from datetime import datetime, timedelta
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _WORKSPACE = os.path.dirname(_HERE)
@@ -39,10 +39,19 @@ def process_stock(args):
         return ("skip", code)
 
     # 增量下载今天 tick（必须显式 download，get_market_data 不会自动拉当天数据）
+    # 2026-09-16: 原为 except: pass — 首轮 2828 只 skip 未留下任何原因（日志里
+    # timeout/error/Traceback 计数全 0，无法定位）。以下只加诊断，不改控制流。
+    t_dl = time.time()
+    dl_note = ""
     try:
         xtdata.download_history_data(code, "tick", start_date, end, incrementally=True)
-    except Exception:
-        pass
+    except Exception as exc:
+        dl_note = "%s: %s" % (type(exc).__name__, str(exc)[:200].replace("\n", " "))
+        print("[tick-dl-exc] %s %.2fs %s" % (code, time.time() - t_dl, dl_note))
+    else:
+        dl_sec = time.time() - t_dl
+        if dl_sec > 3.0:
+            print("[tick-dl-slow] %s %.2fs" % (code, dl_sec))
 
     try:
         # 2026-09-15: 桥的终端进程内没有 numpy，旧 get_market_data() 会抛
@@ -53,10 +62,15 @@ def process_stock(args):
             start_time=today_ymd, end_time=today_ymd, count=-1,
         )
         arr = raw.get(code) if raw else None
-    except Exception:
+    except Exception as exc:
+        print("[tick-read-exc] %s dl=%.2fs %s: %s"
+              % (code, time.time() - t_dl, type(exc).__name__,
+                 str(exc)[:200].replace("\n", " ")))
         return ("skip", code)
 
     if arr is None or len(arr) == 0:
+        print("[tick-empty] %s dl=%.2fs dl_exc=%s"
+              % (code, time.time() - t_dl, dl_note or "none"))
         return ("skip", code)
 
     df_new = pd.DataFrame(arr).sort_values("time").reset_index(drop=True)
