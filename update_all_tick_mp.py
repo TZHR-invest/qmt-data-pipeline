@@ -65,8 +65,14 @@ def process_stock(args):
             rf_exc = "%s: %s" % (type(exc).__name__, str(exc)[:200].replace("\n", " "))
 
     dl_note = ""
-    if _rf_on and arr is not None and len(arr) > 0:
+    if _rf_on and not rf_exc and arr is not None and len(arr) > 0:
         print("[tick-read-first] %s %.2fs rows=%d" % (code, time.time() - t_rf, len(arr)))
+    elif _rf_on and not rf_exc:
+        # 读到但**为空**：不再白等 download —— 实测 download 是空转（冷日期调用它
+        # 60s 后数据依然 0 行），空票每只白花约 60s（约 5min/天）。
+        print("[tick-empty] %s rf=%.2fs rows=0 read_first=1 (download skipped)"
+              % (code, time.time() - t_rf))
+        return ("empty", code)
     else:
         # 回落：老路径（download 异常 ⇒ dl_note 非空 ⇒ 空读判 fail 而非 empty）
         t_dl = time.time()

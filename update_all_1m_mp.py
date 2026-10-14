@@ -61,8 +61,12 @@ def process_stock(args):
             rf_exc = "%s: %s" % (type(exc).__name__, str(exc)[:200].replace("\n", " "))
 
     dl_note = ""
-    if _rf_on and frame is not None and not frame.empty:
+    if _rf_on and not rf_exc and frame is not None and not frame.empty:
         print("[1m-read-first] %s %.2fs rows=%d" % (code, _time.time() - t_rf, len(frame)))
+    elif _rf_on and not rf_exc:
+        print("[1m-empty] %s rf=%.2fs rows=0 read_first=1 (download skipped)"
+              % (code, _time.time() - t_rf))
+        return ("empty", code)
     else:
         t_dl = _time.time()
         try:
