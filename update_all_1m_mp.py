@@ -42,31 +42,50 @@ def process_stock(args):
 
     # 先 download 确保数据被拉到本地（get_market_data_ex 对当天数据不会自动从服务器拉取）
     import time as _time
-    t_dl = _time.time()
-    dl_note = ""
-    try:
-        xtdata.download_history_data(code, period="1m", start_time=today_ymd, end_time=today_ymd, incrementally=True)
-    except Exception as exc:
-        dl_note = "%s: %s" % (type(exc).__name__, str(exc)[:200].replace("\n", " "))
-        print("[1m-dl-exc] %s %.2fs %s" % (code, _time.time() - t_dl, dl_note))
-
-    # 读当天数据
-    try:
-        raw = xtdata.get_market_data_ex(
+    # ── 2026-10-14 读优先（read-first）—— 同 tick，依据见其注释与管道档 §13.5 ──
+    def _read_1m():
+        _raw = xtdata.get_market_data_ex(
             field_list=[], stock_list=[code], period="1m",
             start_time=today_ymd, end_time=today_ymd, count=-1,
         )
-        frame = raw.get(code) if raw else None
-    except Exception as exc:
-        print("[1m-read-exc] %s dl=%.2fs %s: %s"
-              % (code, _time.time() - t_dl, type(exc).__name__,
-                 str(exc)[:200].replace("\n", " ")))
-        return ("fail", code)
+        return _raw.get(code) if _raw else None
 
-    if frame is None or frame.empty:
-        print("[1m-empty] %s dl=%.2fs dl_exc=%s"
-              % (code, _time.time() - t_dl, dl_note or "none"))
-        return ("fail", code) if dl_note else ("empty", code)
+    _rf_on = os.environ.get("PIPE_READ_FIRST", "1") not in ("0", "false", "no", "off")
+    t_rf = _time.time()
+    frame = None
+    rf_exc = ""
+    if _rf_on:
+        try:
+            frame = _read_1m()
+        except Exception as exc:
+            rf_exc = "%s: %s" % (type(exc).__name__, str(exc)[:200].replace("\n", " "))
+
+    dl_note = ""
+    if _rf_on and frame is not None and not frame.empty:
+        print("[1m-read-first] %s %.2fs rows=%d" % (code, _time.time() - t_rf, len(frame)))
+    else:
+        t_dl = _time.time()
+        try:
+            xtdata.download_history_data(code, period="1m", start_time=today_ymd,
+                                         end_time=today_ymd, incrementally=True)
+        except Exception as exc:
+            dl_note = "%s: %s" % (type(exc).__name__, str(exc)[:200].replace("\n", " "))
+            print("[1m-dl-exc] %s %.2fs %s" % (code, _time.time() - t_dl, dl_note))
+
+        try:
+            frame = _read_1m()
+        except Exception as exc:
+            print("[1m-read-exc] %s dl=%.2fs rf=%.2fs %s: %s"
+                  % (code, _time.time() - t_dl, _time.time() - t_rf, type(exc).__name__,
+                     str(exc)[:200].replace("\n", " ")))
+            return ("fail", code)
+
+        if frame is None or frame.empty:
+            if rf_exc:
+                print("[1m-read-first-exc] %s rf=%.2fs %s" % (code, _time.time() - t_rf, rf_exc))
+            print("[1m-empty] %s dl=%.2fs rf=%.2fs dl_exc=%s"
+                  % (code, _time.time() - t_dl, _time.time() - t_rf, dl_note or "none"))
+            return ("fail", code) if dl_note else ("empty", code)
 
     day_df = frame.drop_duplicates(subset=["time"]).sort_values("time").reset_index(drop=True)
     if day_df.empty:

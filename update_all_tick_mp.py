@@ -41,38 +41,60 @@ def process_stock(args):
     # 增量下载今天 tick（必须显式 download，get_market_data 不会自动拉当天数据）
     # 2026-09-16: 原为 except: pass — 首轮 2828 只 skip 未留下任何原因（日志里
     # timeout/error/Traceback 计数全 0，无法定位）。以下只加诊断，不改控制流。
-    t_dl = time.time()
-    dl_note = ""
-    try:
-        xtdata.download_history_data(code, "tick", start_date, end, incrementally=True)
-    except Exception as exc:
-        dl_note = "%s: %s" % (type(exc).__name__, str(exc)[:200].replace("\n", " "))
-        print("[tick-dl-exc] %s %.2fs %s" % (code, time.time() - t_dl, dl_note))
-    else:
-        dl_sec = time.time() - t_dl
-        if dl_sec > 3.0:
-            print("[tick-dl-slow] %s %.2fs" % (code, dl_sec))
-
-    try:
-        # 2026-09-15: 桥的终端进程内没有 numpy，旧 get_market_data() 会抛
-        # RpcServerRepliedError(ModuleNotFoundError: numpy)；改用 get_market_data_ex。
-        # 注意：桥下 tick 只有 18 列（比 mini 少 tickvol/pe；pe 在 mini 时代恒 0）。
-        raw = xtdata.get_market_data_ex(
+    # ── 2026-10-14 读优先（read-first）────────────────────────────────────────
+    # 依据（实测）：桥下 download_history_data 已是空转（客户端配置 download_jobs_enabled=False；
+    # 冷日期调用它 60s 后数据依然 0 行；热日期"先读"与"dl+read"逐值相同）。它白花
+    # ~1.4–1.7s/票，且对空票白等 60s（10-14 Empty=5 ⇒ 白花约 5 min）。
+    # 故：先读一次；读到就用；读不到才回落到原来的 download+read（分类语义完全不变）。
+    def _read_tick():
+        _raw = xtdata.get_market_data_ex(
             field_list=[], stock_list=[code], period="tick",
             start_time=today_ymd, end_time=today_ymd, count=-1,
         )
-        arr = raw.get(code) if raw else None
-    except Exception as exc:
-        print("[tick-read-exc] %s dl=%.2fs %s: %s"
-              % (code, time.time() - t_dl, type(exc).__name__,
-                 str(exc)[:200].replace("\n", " ")))
-        return ("fail", code)
+        return _raw.get(code) if _raw else None
 
-    if arr is None or len(arr) == 0:
-        print("[tick-empty] %s dl=%.2fs dl_exc=%s"
-              % (code, time.time() - t_dl, dl_note or "none"))
-        # 下载本身就异常 -> 这是故障；下载正常却无数据 -> 合法空（退市/停牌）
-        return ("fail", code) if dl_note else ("empty", code)
+    # 开关（默认开；PIPE_READ_FIRST=0 强制走老路径 —— 审计/回退用，不必改代码）
+    _rf_on = os.environ.get("PIPE_READ_FIRST", "1") not in ("0", "false", "no", "off")
+    t_rf = time.time()
+    arr = None
+    rf_exc = ""
+    if _rf_on:
+        try:
+            arr = _read_tick()
+        except Exception as exc:
+            rf_exc = "%s: %s" % (type(exc).__name__, str(exc)[:200].replace("\n", " "))
+
+    dl_note = ""
+    if _rf_on and arr is not None and len(arr) > 0:
+        print("[tick-read-first] %s %.2fs rows=%d" % (code, time.time() - t_rf, len(arr)))
+    else:
+        # 回落：老路径（download 异常 ⇒ dl_note 非空 ⇒ 空读判 fail 而非 empty）
+        t_dl = time.time()
+        try:
+            xtdata.download_history_data(code, "tick", start_date, end, incrementally=True)
+        except Exception as exc:
+            dl_note = "%s: %s" % (type(exc).__name__, str(exc)[:200].replace("\n", " "))
+            print("[tick-dl-exc] %s %.2fs %s" % (code, time.time() - t_dl, dl_note))
+        else:
+            dl_sec = time.time() - t_dl
+            if dl_sec > 3.0:
+                print("[tick-dl-slow] %s %.2fs" % (code, dl_sec))
+
+        try:
+            arr = _read_tick()
+        except Exception as exc:
+            print("[tick-read-exc] %s dl=%.2fs rf=%.2fs %s: %s"
+                  % (code, time.time() - t_dl, time.time() - t_rf, type(exc).__name__,
+                     str(exc)[:200].replace("\n", " ")))
+            return ("fail", code)
+
+        if arr is None or len(arr) == 0:
+            if rf_exc:
+                print("[tick-read-first-exc] %s rf=%.2fs %s" % (code, time.time() - t_rf, rf_exc))
+            print("[tick-empty] %s dl=%.2fs rf=%.2fs dl_exc=%s"
+                  % (code, time.time() - t_dl, time.time() - t_rf, dl_note or "none"))
+            # 下载本身就异常 -> 这是故障；下载正常却无数据 -> 合法空（退市/停牌）
+            return ("fail", code) if dl_note else ("empty", code)
 
     df_new = pd.DataFrame(arr).sort_values("time").reset_index(drop=True)
 
