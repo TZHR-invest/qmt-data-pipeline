@@ -67,12 +67,14 @@ def process_stock(args):
     dl_note = ""
     if _rf_on and not rf_exc and arr is not None and len(arr) > 0:
         print("[tick-read-first] %s %.2fs rows=%d" % (code, time.time() - t_rf, len(arr)))
-    elif _rf_on and not rf_exc:
-        # 读到但**为空**：不再白等 download —— 实测 download 是空转（冷日期调用它
-        # 60s 后数据依然 0 行），空票每只白花约 60s（约 5min/天）。
-        print("[tick-empty] %s rf=%.2fs rows=0 read_first=1 (download skipped)"
-              % (code, time.time() - t_rf))
-        return ("empty", code)
+    # ── 2026-10-15 事故回退：**空读必须回落 download** ─────────────────
+    # 原实现把「read 返回 0 行」当成合法空（停牌/退市）并直接 return empty、
+    # 跳过 download。当天实证（001338.SZ）：read-only=0 行 →
+    # download_history_data 1.98s → 再 read=3708 行 ⇒ **当天数据必须先 download**
+    # （原注释「必须显式 download，get_market_data 不会自动拉当天数据」是对的）。
+    # 后果：10-15 tick 归档 5574→509 只（exit=1）。
+    # 故：删除该分支，让空读落回下面的 download+read；read-first 的收益只在
+    # 「数据已在本地」时保留（1m 实测 720s→463s，不受影响）。
     else:
         # 回落：老路径（download 异常 ⇒ dl_note 非空 ⇒ 空读判 fail 而非 empty）
         t_dl = time.time()
@@ -124,8 +126,33 @@ def process_stock(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="增量更新 Tick 数据（多进程）")
-    parser.add_argument("--workers", type=int, default=4, help="并行进程数 (default: 4)")
+    parser.add_argument("--workers", type=int, default=4, help="workers (default: 4)")
+    # --- 2026-10-15 NOTE: DO **NOT** ENABLE THIS BY DEFAULT -------------------
+    # Sharding across clients was TRIED and MEASURED, and it is COUNTER-
+    # PRODUCTIVE for the original goal: it does NOT lower the per-queue
+    # concurrency (each shard still runs --workers), it only SPREADS the
+    # contention from one account to all three. Measured account-query
+    # latency while archiving (400 codes, read-only):
+    #   no shard / 4 workers on one queue : p50 2.08s, 8-of-76 timeouts
+    #   3 shards x 4 workers             : acc2 still timing out
+    #   3 shards x 2 workers             : ALL THREE accounts timing out
+    #   1 queue / 1 worker               : p50 0.14s, 0 timeouts (safe)
+    # so the ONLY concurrency that is safe is 1 in-flight per queue, which
+    # costs ~4x runtime (0.19 codes/s -> ~8h). The real fix is a DEDICATED
+    # QMT client for the archive. Details: trade-pc-data-pipeline.md 13.13.
+    # Kept only for throughput experiments; default stays 1 (=off).
+    parser.add_argument("--shards", type=int, default=1, help="total shards (1=off)")
+    parser.add_argument("--shard", type=int, default=0, help="this shard index, 0-based")
+    parser.add_argument("--limit", type=int, default=0, help="only first N codes (test; 0=all)")
     args = parser.parse_args()
+
+    # 2026-10-15: wave pacing (default OFF => byte-identical to before).
+    # Measured: 4 workers CONTINUOUS => account queries p50 2.08s / 8-of-76 timeouts;
+    # 4 workers + a 2s pause after each wave => p50 0.90s / max 2.49s / 0 failures
+    # (1 worker is also safe but ~4x slower). The serial RPC queue is NOT the
+    # bottleneck (wait p50 only 80ms) -- the terminal needs idle windows.
+    PIPE_WAVE_PAUSE = float(os.environ.get("PIPE_WAVE_PAUSE_SECONDS", "0") or 0)
+    PIPE_WAVE_PER = int(os.environ.get("PIPE_WAVE_PER_WORKER", "2") or 2)
 
     out_dir_base = r"D:\qmt_data_parquet\tick_parquet"
     data_dir = "D:\\qmt_data"
@@ -137,6 +164,13 @@ if __name__ == "__main__":
     sh_sz = xtdata.get_stock_list_in_sector("沪深A股") or []
     bj = xtdata.get_stock_list_in_sector("京市A股") or []
     stocks = sorted(set(sh_sz) | set(bj))
+    if args.limit > 0:
+        stocks = stocks[:args.limit]
+    if args.shards > 1:
+        _n0 = len(stocks)
+        stocks = [c for i, c in enumerate(stocks) if i % args.shards == args.shard]
+        print("[shard] running shard %d/%d over %d codes (%d before split)"
+              % (args.shard, args.shards, len(stocks), _n0))
     print(f"股票池: {len(stocks)} 只（SH+SZ={len(sh_sz)}, BJ={len(bj)}）")
 
     today = datetime.now()
@@ -159,20 +193,42 @@ if __name__ == "__main__":
     ok = fail = skip = empty = 0
     retry_codes = []
 
+    _cnt = [0, 0, 0, 0]          # ok, fail, skip, empty (module scope: no nonlocal)
+
+    def _account(status, code):
+        if status == "ok":
+            _cnt[0] += 1
+        elif status == "fail":
+            _cnt[1] += 1
+            retry_codes.append(code)
+        elif status == "empty":
+            _cnt[3] += 1
+            retry_codes.append(code)
+        else:
+            _cnt[2] += 1
+
     from tqdm import tqdm
     with Pool(processes=args.workers) as pool:
-        for status, code in tqdm(pool.imap_unordered(process_stock, worker_args),
-                                  total=len(stocks), desc="Tick(MP)", unit="stock"):
-            if status == "ok":
-                ok += 1
-            elif status == "fail":
-                fail += 1
-                retry_codes.append(code)
-            elif status == "empty":
-                empty += 1
-                retry_codes.append(code)
-            else:
-                skip += 1
+        if PIPE_WAVE_PAUSE > 0:
+            # Wave mode: a real barrier per wave, then a sleep. The barrier matters --
+            # sleeping in the consumer would NOT idle the workers (imap_unordered keeps
+            # feeding them), and an idle terminal is the whole point.
+            _wave = max(1, int(args.workers) * PIPE_WAVE_PER)
+            _bar = tqdm(total=len(worker_args), desc="Tick(MP)", unit="stock")
+            try:
+                for _i in range(0, len(worker_args), _wave):
+                    _chunk = worker_args[_i:_i + _wave]
+                    for status, code in pool.map(process_stock, _chunk):
+                        _account(status, code)
+                    _bar.update(len(_chunk))
+                    time.sleep(PIPE_WAVE_PAUSE)
+            finally:
+                _bar.close()
+        else:
+            for status, code in tqdm(pool.imap_unordered(process_stock, worker_args),
+                                     total=len(stocks), desc="Tick(MP)", unit="stock"):
+                _account(status, code)
+    ok, fail, skip, empty = _cnt
 
     # 2026-09-16: 失败/空读有界补跑一遍（原实现混进 skip => 静默漏数据）
     recovered = still_fail = still_empty = 0

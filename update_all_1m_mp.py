@@ -63,10 +63,14 @@ def process_stock(args):
     dl_note = ""
     if _rf_on and not rf_exc and frame is not None and not frame.empty:
         print("[1m-read-first] %s %.2fs rows=%d" % (code, _time.time() - t_rf, len(frame)))
-    elif _rf_on and not rf_exc:
-        print("[1m-empty] %s rf=%.2fs rows=0 read_first=1 (download skipped)"
-              % (code, _time.time() - t_rf))
-        return ("empty", code)
+    # ── 2026-10-15 事故回退：**空读必须回落 download** ─────────────────
+    # 原实现把「read 返回 0 行」当成合法空（停牌/退市）并直接 return empty、
+    # 跳过 download。当天实证（001338.SZ）：read-only=0 行 →
+    # download_history_data 1.98s → 再 read=3708 行 ⇒ **当天数据必须先 download**
+    # （原注释「必须显式 download，get_market_data 不会自动拉当天数据」是对的）。
+    # 后果：10-15 tick 归档 5574→509 只（exit=1）。
+    # 故：删除该分支，让空读落回下面的 download+read；read-first 的收益只在
+    # 「数据已在本地」时保留（1m 实测 720s→463s，不受影响）。
     else:
         t_dl = _time.time()
         try:
