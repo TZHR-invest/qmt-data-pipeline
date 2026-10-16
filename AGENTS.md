@@ -91,3 +91,24 @@ find /mnt/d/qmt_data_parquet/tick_parquet -maxdepth 2 -name "$(date +%Y-%m-%d).p
 
 **监控兜底**：`meshdeck/scripts/qmt-preopen-check.sh`（每交易日 08:40 发正报）已含
 「**上一交易日** tick_parquet / kline_1m 落盘数 ≥5300」两项 —— 数据没落盘会当天早上就发红邮件。
+
+## ⚠️ 2026-10-16 事故：**盘中压测写进生产目录** ⇒ 648 只 tick 只剩集合竞价（已修，两条防线已落地）
+
+**纪律（五条）**
+1. **拿本仓库脚本做压测/演练，必须显式设置输出目录**：
+   `set PIPE_OUT_BASE=D:\qmt_data_parquet_test\<tick_parquet|kline_1m>`（三个写盘脚本都支持；
+   **不设 = 写生产目录**，与改动前逐字节一致 ⇒ 别指望"默认安全"）。
+   2026-10-16 09:15 的负载复现（`update_all_tick_mp.py --limit 1200 --workers 4`，盘前）就是
+   把 648 只 `002xxx` 的 `2026-10-16.parquet` 写成了 **1–64 行、只覆盖 09:15–09:24** 的假文件。
+2. **`Done! ... Skip=N` 里 N>0 就是警报**（正常交易日 tick 恒为 `Skip=0`；同日重跑才会 >0）：
+   它意味着当天文件在本次运行**之前**就已存在（提前跑过/压测过）⇒ 去查那些文件的 mtime 与行数，
+   不要因为 `exit=0` 就放过（那天 16:00 那轮就是 `Skip=648` 一跳而过）。
+3. **"跳过已完成"的判据是 `存在 && 大小>0`** ⇒ **半截文件会被永久保留**（正式归档永远不会补）。
+   补跑前必须先把可疑文件**移出** `tick_parquet/`：放 `D:\qmt_data_parquet\_quarantine\...`，
+   **不能放在 `tick_parquet/` 里面**（会被 `{BASE}/tick_parquet/*/` 的 glob 当成一个"代码目录"计数）。
+4. **补跑入口只有** `schtasks /run /tn QMT-Archive-Daily`（tick→1m 串行，§13.3）；跑完
+   1m 侧 `OK=0 Skip=5578` 是**正常**（文件都在），不是失败。
+5. **判据已加第三层**（meshdeck `scripts/qmt-parquet-day-check.py` 的 `ROWS tick_parquet ...`，
+   只读 parquet footer；调用方阈值 `zero>0 或 lt100>20`，读不到也判 bad）。tick 正常基线
+   （10-12…10-16 全量实测）：`zero=0 lt100=0 min=253 p50≈4000`；事故当天 `lt100=648 min=1 p50=13`。
+   ⚠️ **别用文件大小代替行数**：那 648 个（11.6–13.3 KB）与正常最小文件（12.8 KB）区间**重叠**。
