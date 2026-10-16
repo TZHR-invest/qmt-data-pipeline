@@ -98,6 +98,8 @@ find /mnt/d/qmt_data_parquet/tick_parquet -maxdepth 2 -name "$(date +%Y-%m-%d).p
 1. **拿本仓库脚本做压测/演练，必须显式设置输出目录**：
    `set PIPE_OUT_BASE=D:\qmt_data_parquet_test\<tick_parquet|kline_1m>`（三个写盘脚本都支持；
    **不设 = 写生产目录**，与改动前逐字节一致 ⇒ 别指望"默认安全"）。
+   **压测前先跑 `smoke-outbase.bat` 验证隔离生效**（3 只票、秒级；打印 `Output:` 与测试目录清单，
+   `Output:` 指到生产目录就是隔离失败 ⇒ 立刻停手）。
    2026-10-16 09:15 的负载复现（`update_all_tick_mp.py --limit 1200 --workers 4`，盘前）就是
    把 648 只 `002xxx` 的 `2026-10-16.parquet` 写成了 **1–64 行、只覆盖 09:15–09:24** 的假文件。
 2. **`Done! ... Skip=N` 里 N>0 就是警报**（正常交易日 tick 恒为 `Skip=0`；同日重跑才会 >0）：
