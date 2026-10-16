@@ -120,7 +120,13 @@ def main():
                         help="并行进程数 (default: 4)")
     args = parser.parse_args()
 
-    out_dir_base = r"D:\qmt_data_parquet\kline_1m"
+    # 2026-10-16: out root overridable via PIPE_OUT_BASE (默认与原来完全一致, 生产零变化).
+    #   为什么加：`--limit` 本就是"测试用"开关，而 out 根目录写死 ⇒ 盘中用生产脚本压测
+    #   会把当天（只剩集合竞价）的假文件写进**生产目录**，生产侧的 "skip if exists"
+    #   又把它们当成"已完成"永久留下（10-16 事故：648 只 tick 只剩 09:15-09:24 的行，
+    #   16:00 归档 Skip=648 一跳而过、计数类判据全绿）。
+    #   压测请显式隔离：set PIPE_OUT_BASE=D:\qmt_data_parquet_test\<tick_parquet|kline_1m>
+    out_dir_base = os.environ.get("PIPE_OUT_BASE", r"D:\qmt_data_parquet\kline_1m")
     data_dir = "D:\\qmt_data"
     os.makedirs(out_dir_base, exist_ok=True)
 
