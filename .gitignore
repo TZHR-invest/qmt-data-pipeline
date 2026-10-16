@@ -13,3 +13,8 @@ data/
 
 # codegraph 缓存
 .codegraph/
+
+# 补丁/临时备份（回退优先用 git；2026-10-16）
+*.bak-*
+__pycache__/
+*.out
