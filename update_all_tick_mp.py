@@ -50,6 +50,7 @@ def process_stock(args):
         _raw = xtdata.get_market_data_ex(
             field_list=[], stock_list=[code], period="tick",
             start_time=today_ymd, end_time=today_ymd, count=-1,
+            fill_data=False,
         )
         return _raw.get(code) if _raw else None
 

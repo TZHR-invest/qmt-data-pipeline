@@ -114,3 +114,17 @@ find /mnt/d/qmt_data_parquet/tick_parquet -maxdepth 2 -name "$(date +%Y-%m-%d).p
    只读 parquet footer；调用方阈值 `zero>0 或 lt100>20`，读不到也判 bad）。tick 正常基线
    （10-12…10-16 全量实测）：`zero=0 lt100=0 min=253 p50≈4000`；事故当天 `lt100=648 min=1 p50=13`。
    ⚠️ **别用文件大小代替行数**：那 648 个（11.6–13.3 KB）与正常最小文件（12.8 KB）区间**重叠**。
+## ⚠️ 2026-10-20 事故：`fill_data` 默认 True ⇒ "取不到数据"被伪造成"平盘的一天"（已修）
+
+**纪律（三条）**
+1. **归档/落盘类读取必须显式 `fill_data=False`**。兼容层 `get_market_data_ex` 的默认值是
+   `fill_data=True`（`bridge/src/bigqmt_signal_trader/xtquant_compat.py` 签名），取不到数据时会
+   **前向填充 241 根 `open=high=low=close`、`volume=0` 的假 K 线**。2026-10-15（mini→桥切换）与
+   10-19（transport 改 pipe）两天，全市场 1m 日文件就是这样被写成假数据的 ——
+   **行数/日期/文件数全部正确**，只看行数的判据完全看不出来。
+2. **1m 的"空读"判据要看成交量**：`update_all_1m_mp.py` 现有 `_has_vol()` —— 整段 `volume==0`
+   视作空读（走 download 回落），写盘前还有一道兜底（`[1m-zero-vol]` + `return ("empty", code)`）。
+   日志里出现 `[1m-zero-vol]` 说明当天该票**真没数据**，不是 bug。
+3. **补历史数据的脚本必须用 `multiprocessing` 进程池**（同生产脚本）：桥客户端是进程内单例，
+   用线程并发会互相踩成 `RuntimeError: getTradingDatesByMarket ... not authenticated`
+   （典型现象：单发成功、4 线程全失败）。

@@ -43,10 +43,22 @@ def process_stock(args):
     # 先 download 确保数据被拉到本地（get_market_data_ex 对当天数据不会自动从服务器拉取）
     import time as _time
     # ── 2026-10-14 读优先（read-first）—— 同 tick，依据见其注释与管道档 §13.5 ──
+    def _has_vol(f):
+        """整段 volume==0 视作"无有效数据"（fill 痕迹）。取不到列时保守放行。"""
+        try:
+            return f is not None and len(f) > 0 and int(f["volume"].sum()) != 0
+        except Exception:
+            return f is not None and len(f) > 0
+
     def _read_1m():
+        # 2026-10-20: fill_data=False 是硬要求 —— 默认 True 会在取不到数据时
+        # 前向填充 241 根 open=high=low=close、volume=0 的"平盘假 K 线"，
+        # 10-15/10-19 两天全市场就是这样被写成假数据的（行数/日期全对，
+        # 只看行数的判据全部失明）。
         _raw = xtdata.get_market_data_ex(
             field_list=[], stock_list=[code], period="1m",
             start_time=today_ymd, end_time=today_ymd, count=-1,
+            fill_data=False,
         )
         return _raw.get(code) if _raw else None
 
@@ -61,7 +73,7 @@ def process_stock(args):
             rf_exc = "%s: %s" % (type(exc).__name__, str(exc)[:200].replace("\n", " "))
 
     dl_note = ""
-    if _rf_on and not rf_exc and frame is not None and not frame.empty:
+    if _rf_on and not rf_exc and _has_vol(frame):
         print("[1m-read-first] %s %.2fs rows=%d" % (code, _time.time() - t_rf, len(frame)))
     # ── 2026-10-15 事故回退：**空读必须回落 download** ─────────────────
     # 原实现把「read 返回 0 行」当成合法空（停牌/退市）并直接 return empty、
@@ -88,6 +100,10 @@ def process_stock(args):
                      str(exc)[:200].replace("\n", " ")))
             return ("fail", code)
 
+        if frame is not None and not frame.empty and not _has_vol(frame):
+            print("[1m-zero-vol] %s rows=%d volume_all_zero (treated as empty)"
+                  % (code, len(frame)))
+            frame = None
         if frame is None or frame.empty:
             if rf_exc:
                 print("[1m-read-first-exc] %s rf=%.2fs %s" % (code, _time.time() - t_rf, rf_exc))
@@ -98,6 +114,14 @@ def process_stock(args):
     day_df = frame.drop_duplicates(subset=["time"]).sort_values("time").reset_index(drop=True)
     if day_df.empty:
         return ("empty", code)
+    # 2026-10-20: 兜底闸门 —— 全零成交绝不写库
+    try:
+        if int(day_df["volume"].sum()) == 0:
+            print("[1m-zero-vol] %s rows=%d volume_all_zero on write, skipped"
+                  % (code, len(day_df)))
+            return ("empty", code)
+    except Exception:
+        pass
 
     # 写当日 parquet（低压缩，快速写入）
     try:
