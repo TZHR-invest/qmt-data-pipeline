@@ -128,3 +128,7 @@ find /mnt/d/qmt_data_parquet/tick_parquet -maxdepth 2 -name "$(date +%Y-%m-%d).p
 3. **补历史数据的脚本必须用 `multiprocessing` 进程池**（同生产脚本）：桥客户端是进程内单例，
    用线程并发会互相踩成 `RuntimeError: getTradingDatesByMarket ... not authenticated`
    （典型现象：单发成功、4 线程全失败）。
+**补历史缺口工具**：`repair_1m_gaps.py`（2026-10-20 落地）—— 批量下载（compat 单例，
+`data_wait_seconds=5`）+ 逐只读合并 + 三重校验 + 备份。⚠️ 必须用它的批量路径：
+模块级 `download_history_data2` 不吃 `chunk_size`/`data_wait_seconds`，逐只补无源票会
+每票白等 60 s。用法与纪律写在脚本头部。
