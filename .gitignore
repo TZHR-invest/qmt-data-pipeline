@@ -18,3 +18,6 @@ data/
 *.bak-*
 __pycache__/
 *.out
+
+# 补跑输入的日期（运行态，2026-11-10）
+backfill_date.txt

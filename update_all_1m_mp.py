@@ -162,7 +162,19 @@ def main():
     stocks = sorted(set(sh_sz) | set(bj))
     print(f"股票池: {len(stocks)} 只（SH+SZ={len(sh_sz)}, BJ={len(bj)}）")
 
-    today = datetime.now()
+    # 2026-11-10: 支持补跑指定日期；**不设该变量 = 取今天，与改动前逐字节等价**。
+    # 起因：2026-11-09 16:00 的串行归档跑到 87%（4835/5579）时机器被人工关机
+    #       （干净重启 17:29:57），tick 只落 4831/5563、1m 一只未落；而两个脚本都
+    #       写死 datetime.now() ⇒ 没有任何入口能补那一天。
+    # 用法：set PIPE_TARGET_DATE=20261109  然后照常跑脚本（其余逻辑一概不变）。
+    _target_day = (os.environ.get("PIPE_TARGET_DATE") or "").strip()
+    if _target_day:
+        try:
+            today = datetime.strptime(_target_day, "%Y%m%d")
+        except ValueError:
+            raise SystemExit("PIPE_TARGET_DATE 必须是 YYYYMMDD（实收 %r）" % _target_day)
+    else:
+        today = datetime.now()
     today_ymd = today.strftime("%Y%m%d")
     today_dash = today.strftime("%Y-%m-%d")
 
