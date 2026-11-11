@@ -45,14 +45,23 @@ rem ---- validate: real YYYYMMDD calendar date (python does the work) ----
 "%PY%" -c "import sys,datetime;datetime.datetime.strptime(sys.argv[1],'%%Y%%m%%d')" "%DAY%" >nul 2>&1
 if errorlevel 1 goto :bad_date
 
-rem ---- time-window guard (string compare on zero-padded HHMM) ----
+rem ---- time-window guard (string compare on zero-padded 4-digit HHMM) ----
 set "HHMM=?"
 for /f "tokens=1,2 delims=:" %%a in ("%TIME: =0%") do set "HHMM=%%a%%b"
 if "%~2"=="--force" goto :guard_ok
-if not "%HHMM:~3,1%"=="" if not "%HHMM:~4,1%"=="" if "%HHMM%" geq "1500" if "%HHMM%" leq "1559" goto :guard_ok
-if not "%HHMM:~3,1%"=="" if not "%HHMM:~4,1%"=="" if "%HHMM%" geq "1755" goto :guard_ok
-echo [%DATE% %TIME%] REFUSED day=%DAY%: outside window (allowed 15:00-15:59 or 17:55+; override with --force)>>"%LOGDIR%\backfill_archive_%DAY%.log"
-echo REFUSED: now %TIME% -- allowed 15:00-15:59 or 17:55+, override with --force
+rem FIX 2026-11-11: the old guard was
+rem   if not "%HHMM:~3,1%"=="" if not "%HHMM:~4,1%"=="" if "%HHMM%" geq "1500" ...
+rem The 2nd clause required a 5th character, so a normal 4-digit HHMM ALWAYS
+rem fell through to REFUSED. Measured 2026-11-10 15:05:02 -> REFUSED even
+rem though 15:05 is inside the 15:00-15:59 window. Correct rule: HHMM must
+rem be EXACTLY 4 characters before the lexical compare is numeric-safe.
+if "%HHMM:~3,1%"=="" goto :refused
+if not "%HHMM:~4,1%"=="" goto :refused
+if "%HHMM%" geq "1500" if "%HHMM%" leq "1559" goto :guard_ok
+if "%HHMM%" geq "1755" goto :guard_ok
+:refused
+echo [%DATE% %TIME%] REFUSED day=%DAY% (now %HHMM%): outside window (allowed 15:00-15:59 or 17:55+; override with --force)>>"%LOGDIR%\backfill_archive_%DAY%.log"
+echo REFUSED: now %TIME% (HHMM=%HHMM%) -- allowed 15:00-15:59 or 17:55+, override with --force
 exit /b 3
 :guard_ok
 
